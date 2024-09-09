@@ -545,6 +545,7 @@ class DataFrame:
             transposed_data[f"row_{i}"] = Column(new_col, Type.Float)
         
         return DataFrame(transposed_data)
+    
     def compare(self, other: 'DataFrame') -> 'DataFrame':
         """
         Compares the DataFrame with another DataFrame and returns a new DataFrame
@@ -647,6 +648,233 @@ class DataFrame:
         for i in range(len(iterable)):
             if iterable[i] == old:
                 iterable[i] = new
+
+
+    def hstack(self, iterable, column_name: str) -> 'DataFrame':
+        """
+        Horizontally stacks an iterable as a new column to the right of the current DataFrame.
+        If the iterable is longer than the DataFrame, it adds new rows with None. 
+        If the iterable is shorter, the DataFrame is truncated to the length of the iterable.
+        
+        :param iterable: The iterable object to add as a new column.
+        :param column_name: The name of the new column to be added.
+        :return: A new DataFrame with the iterable added as a new column.
+        """
+        # Convert the iterable into a list
+        series = list(iterable)
+        series_length = len(series)
+        num_rows = len(self._columns[list(self._columns.keys())[0]])
+    
+        if column_name in self._columns:
+            raise ValueError(f"Column name '{column_name}' already exists in the DataFrame.")
+        
+        new_columns = {}
+    
+        # Handle the case where the iterable is longer than the DataFrame
+        if series_length > num_rows:
+            for name, column in self._columns.items():
+                new_data = column._data + [None] * (series_length - num_rows)
+                new_columns[name] = Column(new_data, column.dtype)
+            new_columns[column_name] = Column(series, Type.Float)
+    
+        # Handle the case where the iterable is shorter or equal to the DataFrame
+        else:
+            for name, column in self._columns.items():
+                new_columns[name] = Column(column[:series_length], column.dtype)
+            new_columns[column_name] = Column(series, Type.Float)
+    
+        return DataFrame(new_columns)
+    def vstack(self, iterable, column_names: list) -> 'DataFrame':
+        """
+        Vertically stacks an iterable object as new rows to the current DataFrame.
+        If the iterable has more rows, the original DataFrame is extended with None values.
+        If the iterable has fewer rows, the resulting DataFrame is truncated to the length of the iterable.
+    
+        :param iterable: The iterable object containing the new rows to add.
+        :param column_names: The names of the columns in the iterable.
+        :return: A new DataFrame with the rows of the iterable added below the rows of the current DataFrame.
+        """
+        iterable = list(iterable)  # Convert the iterable to a list of rows
+        iterable_length = len(iterable)
+        self_num_rows = len(self._columns[list(self._columns.keys())[0]])
+    
+        if set(column_names) != set(self._columns.keys()):
+            raise ValueError("The iterable must have the same columns as the DataFrame.")
+    
+        new_columns = {name: self._columns[name]._data[:] for name in self._columns}
+    
+        # If the iterable has more rows, extend the DataFrame with None
+        if iterable_length > self_num_rows:
+            for name in self._columns:
+                new_columns[name] += [None] * (iterable_length - self_num_rows)
+    
+        # Add the rows from the iterable
+        for row in iterable:
+            for i, name in enumerate(column_names):
+                new_columns[name].append(row[i])
+    
+        # If the iterable has fewer rows, truncate the DataFrame
+        if iterable_length < self_num_rows:
+            for name in new_columns:
+                new_columns[name] = new_columns[name][:self_num_rows + iterable_length]
+    
+        # Convert lists back to Column objects
+        final_columns = {name: Column(data, self._columns[name].dtype) for name, data in new_columns.items()}
+    
+        return DataFrame(final_columns)
+    def vstack2(self, value, column_name: str) -> 'DataFrame':
+        """
+        Vertically stacks a single value into a specific column, adding None values to the other columns.
+        If the DataFrame is longer, new rows with None values are added to match the length of the DataFrame.
+    
+        :param value: The single value to add into the specified column.
+        :param column_name: The name of the column where the value should be added.
+        :return: A new DataFrame with the value added to the specified column and None in other columns.
+        """
+        self_num_rows = len(self._columns[list(self._columns.keys())[0]])
+    
+        if column_name not in self._columns:
+            raise ValueError(f"Column name '{column_name}' does not exist in the DataFrame.")
+    
+        new_columns = {name: self._columns[name]._data[:] for name in self._columns}
+    
+        # Add the new value to the specified column
+        for name in new_columns:
+            if name == column_name:
+                new_columns[name].append(value)
+            else:
+                new_columns[name].append(None)
+    
+        # Convert lists back to Column objects
+        final_columns = {name: Column(data, self._columns[name].dtype) for name, data in new_columns.items()}
+    
+        return DataFrame(final_columns)
+    def head(self, n: int = 5) -> 'DataFrame':
+        """
+        Returns the first n rows of the DataFrame.
+        
+        :param n: Number of rows to return (default is 5).
+        :return: A new DataFrame containing the first n rows.
+        """
+        new_columns = {}
+        for name, column in self._columns.items():
+            new_columns[name] = Column(column._data[:n], column.dtype)
+        
+        return DataFrame(new_columns)
+    def tail(self, n: int = 5) -> 'DataFrame':
+        """
+        Returns the last n rows of the DataFrame.
+        
+        :param n: Number of rows to return (default is 5).
+        :return: A new DataFrame containing the last n rows.
+        """
+        new_columns = {}
+        for name, column in self._columns.items():
+            new_columns[name] = Column(column._data[-n:], column.dtype)
+        
+        return DataFrame(new_columns)
+    def dropna(self) -> 'DataFrame':
+        """
+        Removes all rows that contain any None values.
+        
+        :return: A new DataFrame without rows containing None.
+        """
+        new_columns = {name: [] for name in self._columns}
+    
+        num_rows = len(self._columns[list(self._columns.keys())[0]])
+    
+        for i in range(num_rows):
+            row = [self._columns[name]._data[i] for name in self._columns]
+            if None not in row:
+                for name in self._columns:
+                    new_columns[name].append(self._columns[name]._data[i])
+    
+        final_columns = {name: Column(data, self._columns[name].dtype) for name, data in new_columns.items()}
+        return DataFrame(final_columns)
+    def fillna(self, value) -> 'DataFrame':
+        """
+        Fills all None values in the DataFrame with the specified value.
+        
+        :param value: The value to replace None values with.
+        :return: A new DataFrame with None values replaced by the specified value.
+        """
+        new_columns = {}
+    
+        for name, column in self._columns.items():
+            new_data = [value if v is None else v for v in column._data]
+            new_columns[name] = Column(new_data, column.dtype)
+        
+        return DataFrame(new_columns)
+    def rename_column(self, old_name: str, new_name: str) -> 'DataFrame':
+        """
+        Renames a column in the DataFrame.
+        
+        :param old_name: The current name of the column.
+        :param new_name: The new name for the column.
+        :return: A new DataFrame with the renamed column.
+        """
+        if old_name not in self._columns:
+            raise ValueError(f"Column '{old_name}' does not exist.")
+        
+        new_columns = {name: column for name, column in self._columns.items()}
+        new_columns[new_name] = new_columns.pop(old_name)
+        
+        return DataFrame(new_columns)
+    def select_columns(self, columns: list) -> 'DataFrame':
+        """
+        Returns a new DataFrame containing only the specified columns.
+        
+        :param columns: List of column names to select.
+        :return: A new DataFrame with only the specified columns.
+        """
+        new_columns = {name: self._columns[name] for name in columns if name in self._columns}
+        return DataFrame(new_columns)
+    def shape(self) -> tuple:
+        """
+        Returns the shape of the DataFrame as (number of rows, number of columns).
+        
+        :return: A tuple representing the shape of the DataFrame.
+        """
+        num_rows = len(self._columns[list(self._columns.keys())[0]])
+        num_columns = len(self._columns)
+        return (num_rows, num_columns)
+    def sum(self, column_name: str) -> float:
+        """
+        Returns the sum of values in the specified column.
+        
+        :param column_name: The name of the column to sum.
+        :return: The sum of the values in the column.
+        """
+        if column_name not in self._columns:
+            raise ValueError(f"Column '{column_name}' does not exist.")
+        
+        return sum(v for v in self._columns[column_name]._data if v is not None)
+    def groupby(self, column_name: str, agg_func) -> dict:
+        """
+        Groups the DataFrame by the values in the specified column and applies an aggregation function.
+        
+        :param column_name: The column to group by.
+        :param agg_func: The aggregation function (e.g., sum, mean, etc.) to apply to each group.
+        :return: A dictionary with grouped values as keys and aggregated results as values.
+        """
+        if column_name not in self._columns:
+            raise ValueError(f"Column '{column_name}' does not exist.")
+        
+        grouped_data = {}
+        for i, value in enumerate(self._columns[column_name]._data):
+            if value not in grouped_data:
+                grouped_data[value] = {name: [] for name in self._columns if name != column_name}
+            for name in self._columns:
+                if name != column_name:
+                    grouped_data[value][name].append(self._columns[name]._data[i])
+        
+        aggregated_data = {}
+        for group, columns in grouped_data.items():
+            aggregated_data[group] = {name: agg_func(values) for name, values in columns.items()}
+        
+        return aggregated_data
+
+    
     @property
     def columns(self) -> Iterable[str]:
         """
@@ -808,15 +1036,24 @@ class CSVReader(Reader):
 #df = DataFrame(columns)
 #dfu = df.sample(2)
 #print(dfu)
-columns = {
-    "A": Column([1, 2, 3, 4], Type.Float),
-    "B": Column([5, 6, 7, 8], Type.Float),
-    "C": Column([9, 10, 11, 12], Type.Float)
+#columns = {
+#    "A": Column([1, 2, 3, 4, 5], Type.Float),
+#    "B": Column([6, 7, 8, 9, 10], Type.Float)
+#}
+#
+#df = DataFrame(columns)
+#print(df)
+#series = [11, 12, 13, 14, 15, 16]
+columns1 = {
+    "A": Column([1, 2, 3], Type.Float),
+    "B": Column([4, 5, 6], Type.Float)
 }
 
-df = DataFrame(columns)
-print(df)
 
-###
-df3 = df.cumsum(0)
-print(df3)
+df1 = DataFrame(columns1)
+print(df1)
+serie= [[10]]
+
+
+df4 = df1.vstack(serie, ["A", "B"])
+print(df4)
