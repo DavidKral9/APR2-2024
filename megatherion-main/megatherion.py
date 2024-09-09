@@ -66,7 +66,7 @@ class Column(MutableSequence):# implement MutableSequence (some method are mixed
         Implementation of abstract base class `MutableSequence`.
         :return: number of rows
         """
-        return len(self._data)
+        return len(self.data)
 
     def __getitem__(self, item: Union[int, slice]) -> Union[float,
                                     str, list[str], list[float]]:
@@ -76,7 +76,7 @@ class Column(MutableSequence):# implement MutableSequence (some method are mixed
         :param item: index or slice
         :return: item or list of items
         """
-        return self._data[item]
+        return self.data[item]
 
     def __setitem__(self, key: Union[int, slice], value: Any) -> None:
         """
@@ -130,7 +130,7 @@ class Column(MutableSequence):# implement MutableSequence (some method are mixed
         :return: new column with the same items
         """
         # FIXME: value is cast to the same type (minor optimisation problem)
-        return Column(self._data, self.dtype)
+        return Column(self.data, self.dtype)
 
     def get_formatted_item(self, index: int, *, width: int):
         """
@@ -142,13 +142,52 @@ class Column(MutableSequence):# implement MutableSequence (some method are mixed
         :return:
         """
         assert width > 0
-        if self._data[index] is None:
+        if self.data[index] is None:
             if self.dtype == Type.Float:
                 return "n/a".rjust(width)
             else:
                 return "n/a".ljust(width)
-        return format(self._data[index],
+        return format(self.data[index],
                       f"{width}s" if self.dtype == Type.String else f"-{width}.2g")
+    def __init__(self, data, dtype):
+        self.data = data
+        self.dtype = dtype
+
+    def push(self, value):
+        """
+        Adds a value to the top of the column (end of the list).
+        """
+        self.data.append(value)
+
+    def pop(self):
+        """
+        Removes and returns the value from the top of the column (end of the list).
+        """
+        if not self.is_empty():
+            return self.data.pop()
+        else:
+            raise IndexError("Pop from an empty column.")
+
+    def peek(self):
+        """
+        Returns the value at the top of the column (end of the list) without removing it.
+        """
+        if not self.is_empty():
+            return self.data[-1]
+        else:
+            return None
+
+    def is_empty(self):
+        """
+        Checks if the column is empty.
+        """
+        return len(self.data) == 0
+
+    def size(self):
+        """
+        Returns the number of elements in the column.
+        """
+        return len(self.data)
 
 class DataFrame:
     """
@@ -908,7 +947,11 @@ class DataFrame:
         Appends new row to dataframe.
         :param row: tuple of values for all columns
         """
-        ...
+        if len(row) != len(self._columns):
+          raise ValueError(f"Row length {len(row)} does not match number of columns {len(self._columns)}.")
+
+        for i, (col_name, column) in enumerate(self._columns.items()):
+          column.append(row[i])
 
     def filter(self, col_name:str,
                predicate: Callable[[Union[float, str]], bool]) -> 'DataFrame':
@@ -920,35 +963,90 @@ class DataFrame:
         :param predicate: testing function
         :return: new dataframe
         """
-        ...
+        if col_name not in self._columns:
+          raise ValueError(f"Column '{col_name}' does not exist in the DataFrame.")
+    
+    # Filtering rows based on the predicate
+        filtered_rows = []
+        for i in range(len(self)):
+          if predicate(self._columns[col_name][i]):
+             filtered_rows.append(tuple(c[i] for c in self._columns.values()))
+    
+    # Creating a new DataFrame with filtered rows
+        new_columns = {
+          name: Column([row[idx] for row in filtered_rows], column.dtype)
+          for idx, (name, column) in enumerate(self._columns.items())
+         }
+    
+        return DataFrame(new_columns)
 
-    def sort(self, col_name:str, ascending=True) -> 'DataFrame':
+    def sort(self, col_name: str, ascending: bool = True) -> 'DataFrame':
         """
-        Sort dataframe by column with `col_name` ascending or descending.
+        Sort dataframe by column with `col_name` in ascending or descending order.
         :param col_name: name of key column
         :param ascending: direction of sorting
         :return: new dataframe
         """
-        ...
+        if col_name not in self._columns:
+            raise ValueError(f"Column '{col_name}' does not exist in the DataFrame.")
+    
+        sorted_indices = sorted(range(len(self)), key=lambda i: self._columns[col_name][i], reverse=not ascending)
+        sorted_rows = [tuple(c[i] for c in self._columns.values()) for i in sorted_indices]
+    
+        new_columns = {
+            name: Column([row[idx] for row in sorted_rows], column.dtype)
+            for idx, (name, column) in enumerate(self._columns.items())
+        }
+    
+        return DataFrame(new_columns)
 
     def describe(self) -> str:
         """
-        similar to pandas but only with min, max and avg statistics for floats and count"
-        :return: string with formatted decription
+        Similar to pandas but only with min, max and avg statistics for floats and count.
+        :return: string with formatted description
         """
-        ...
+        description = []
+        for name, column in self._columns.items():
+            if column.dtype == Type.Float:
+                values = [v for v in column if v is not None]
+                min_val = min(values) if values else None
+                max_val = max(values) if values else None
+                avg_val = sum(values) / len(values) if values else None
+                description.append(f"{name}: min={min_val}, max={max_val}, avg={avg_val}")
+            description.append(f"{name}: count={len(column)}")
+        return "\n".join(description)
 
-    def inner_join(self, other: 'DataFrame', self_key_column: str,
-                   other_key_column: str) -> 'DataFrame':
+    def inner_join(self, other: 'DataFrame', self_key_column: str, other_key_column: str) -> 'DataFrame':
         """
-            Inner join between self and other dataframe with join predicate
-            `self.key_column == other.key_column`.
-
-            Possible collision of column identifiers is resolved by prefixing `_other` to
-            columns from `other` data table.
+        Inner join between self and other dataframe with join predicate
+        `self_key_column == other_key_column`.
+        :param self_key_column: The key column in the current DataFrame.
+        :param other_key_column: The key column in the other DataFrame.
+        :return: A new DataFrame with the result of the inner join.
         """
-        ...
-
+        if self_key_column not in self._columns:
+            raise ValueError(f"Column '{self_key_column}' does not exist in the current DataFrame.")
+        if other_key_column not in other._columns:
+            raise ValueError(f"Column '{other_key_column}' does not exist in the other DataFrame.")
+    
+        joined_rows = []
+        for i in range(len(self)):
+            for j in range(len(other)):
+                if self._columns[self_key_column][i] == other._columns[other_key_column][j]:
+                    joined_row = [self._columns[name][i] for name in self._columns]
+                    joined_row += [other._columns[name][j] for name in other._columns if name != other_key_column]
+                    joined_rows.append(tuple(joined_row))
+    
+        # Creating new columns for the joined DataFrame
+        new_columns = {name: Column([], self._columns[name].dtype) for name in self._columns}
+        new_columns.update({name + "_other": Column([], other._columns[name].dtype) for name in other._columns if name != other_key_column})
+    
+        for row in joined_rows:
+            for idx, (name, column) in enumerate(new_columns.items()):
+                column.append(row[idx])
+    
+        return DataFrame(new_columns)
+    
     def setvalue(self, col_name: str, row_index: int, value: Any) -> None:
         """
         Set new value in dataframe.
@@ -1027,15 +1125,15 @@ class CSVReader(Reader):
 #
 #for line in df:
 #    print(line)
-#columns = {
-#    "Name": Column(["Alice", "Bob", "Alice", "Charlie", "Bob"], Type.String),
-#    "Age": Column([25, 30, 25, 35, 30], Type.Float),
-#    "City": Column(["New York", "Los Angeles", "New York", "Chicago", "Los Angeles"], Type.String)
-#}
-#
-#df = DataFrame(columns)
-#dfu = df.sample(2)
-#print(dfu)
+columns = {
+    "Name": Column(["Alice", "Bob", "Alice", "Charlie", "Bob"], Type.String),
+    "Age": Column([25, 30, 25, 35, 30], Type.Float),
+    "City": Column(["New York", "Los Angeles", "New York", "Chicago", "Los Angeles"], Type.String)
+}
+
+df = DataFrame(columns)
+dfu = df.sample(2)
+print(dfu)
 #columns = {
 #    "A": Column([1, 2, 3, 4, 5], Type.Float),
 #    "B": Column([6, 7, 8, 9, 10], Type.Float)
@@ -1044,16 +1142,16 @@ class CSVReader(Reader):
 #df = DataFrame(columns)
 #print(df)
 #series = [11, 12, 13, 14, 15, 16]
-columns1 = {
-    "A": Column([1, 2, 3], Type.Float),
-    "B": Column([4, 5, 6], Type.Float)
-}
-
-
-df1 = DataFrame(columns1)
-print(df1)
-serie= [[10]]
-
-
-df4 = df1.vstack(serie, ["A", "B"])
-print(df4)
+#columns1 = {
+#    "A": Column([1, 2, 3], Type.Float),
+#    "B": Column([4, 5, 6], Type.Float)
+#}
+#
+#
+#df1 = DataFrame(columns1)
+#print(df1)
+#serie= [[10]]
+#
+#
+#df4 = df1.vstack(serie, ["A", "B"])
+#print(df4)
